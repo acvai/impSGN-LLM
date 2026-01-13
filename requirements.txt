@@ -126,3 +126,4 @@ Werkzeug==1.0.1
 widgetsnbextension==3.4.2
 yacs==0.1.8
 zipp==3.4.0
+einops

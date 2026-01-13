@@ -136,7 +136,7 @@ def get_parser():
     parser.add_argument(
         '--num-worker',
         type=int,
-        default=32,
+        default=0,  #default=32  => with this number in the original project, the program crushes after it finished the training process. So, I should put 20< (with is my PC number of workers limit. Or "0" if the problem persists)
         help='the number of worker for data loader')
     parser.add_argument(
         '--train-feeder-args',
@@ -290,14 +290,14 @@ class Processor():
                 dataset=Feeder(**self.arg.train_feeder_args),
                 batch_size=self.arg.batch_size,
                 shuffle=True,
-                num_workers=self.arg.num_worker,
+                num_workers=self.arg.num_worker, # self.arg.num_worker, # I commented this line "self.arg.num_worker," to avoid an issue appearing when running evaluation phase
                 drop_last=True,
                 worker_init_fn=init_seed)
         self.data_loader['test'] = torch.utils.data.DataLoader(
             dataset=Feeder(**self.arg.test_feeder_args),
             batch_size=self.arg.test_batch_size,
             shuffle=False,
-            num_workers=self.arg.num_worker,
+            num_workers=self.arg.num_worker, # self.arg.num_worker, # I commented this line "self.arg.num_worker," to avoid an issue appearing when running evaluation phase
             drop_last=False,
             worker_init_fn=init_seed)
 
@@ -305,7 +305,7 @@ class Processor():
         output_device = self.arg.device[0] if type(self.arg.device) is list else self.arg.device
         self.output_device = output_device
         Model = import_class(self.arg.model)
-        shutil.copy2(inspect.getfile(Model), self.arg.work_dir)
+        shutil.copy(inspect.getfile(Model), self.arg.work_dir) #"shutil.copy2(inspect.getfile(Model), self.arg.work_dir)": in this command we use copy() instead of copy2(), because in this PC I'm using a server-disk which does not allow copy permissions => using copy()
         print(Model)
         self.model = Model(**self.arg.model_args)
         print(self.model)
@@ -665,7 +665,7 @@ if __name__ == '__main__':
     p = parser.parse_args()
     if p.config is not None:
         with open(p.config, 'r') as f:
-            default_arg = yaml.load(f)
+            default_arg = yaml.load(f, Loader=yaml.FullLoader)  # this is the newer version of this package, so it needs the "Loader". The previous version needed only "default_arg = yaml.load(f, Loader=yaml.FullLoader)"
         key = vars(p).keys()
         for k in default_arg.keys():
             if k not in key:

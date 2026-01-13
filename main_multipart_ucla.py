@@ -137,7 +137,7 @@ def get_parser():
     parser.add_argument(
         '--num-worker',
         type=int,
-        default=32,
+        default=20,  #default=32  => with this number in the original project, the program crushes after it finished the training process. So, I put 20 (with is my PC number of workers limit)
         help='the number of worker for data loader')
     parser.add_argument(
         '--train-feeder-args',
