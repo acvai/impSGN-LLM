@@ -1,0 +1,8 @@
+# Ignore generated NTU npz files
+NTU60_CS.npz
+NTU60_CV.npz
+
+
+# Ignore folders
+raw_data/
+denoised_data/

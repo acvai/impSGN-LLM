@@ -1,0 +1,7 @@
+# Ignore generated NTU npz files
+NTU120_CSet.npz
+NTU120_CSub.npz
+
+# Ignore folders
+raw_data/
+denoised_data/
