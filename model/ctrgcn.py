@@ -348,13 +348,197 @@ class Model(nn.Module):
 
         return self.fc(x)
 
-
-
+###########################################  implementing SGN model into Model_lst_4part() class ########################################################### 
+# class Model_lst_4part(nn.Module):
+#     def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3, drop_out=0, adaptive=True, head=['ViT-B/32'], k=0):
+#         super(Model_lst_4part, self).__init__()   
 
 class Model_lst_4part(nn.Module):
-    def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3,
-                 drop_out=0, adaptive=True, head=['ViT-B/32'], k=0):
+    def __init__(self, batch_size, num_class=60, seg=20, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3, drop_out=0, bias=True, adaptive=True, head=['ViT-B/32'], k=0):  #, dataset, args
         super(Model_lst_4part, self).__init__()
+        
+        self.dim1 = 128
+        # self.dataset = dataset
+        self.seg = seg
+        num_joint = num_point
+        bs = batch_size
+        
+        # if args.train:
+        self.spa = self.one_hot(bs*num_person, num_joint, self.seg)
+        self.spa = self.spa.permute(0, 3, 2, 1).cuda()
+        self.tem = self.one_hot(bs*num_person, self.seg, num_joint)
+        self.tem = self.tem.permute(0, 3, 1, 2).cuda()
+        # else:
+        #     self.spa = self.one_hot(32 * 5, num_joint, self.seg)
+        #     self.spa = self.spa.permute(0, 3, 2, 1).cuda()
+        #     self.tem = self.one_hot(32 * 5, self.seg, num_joint)
+        #     self.tem = self.tem.permute(0, 3, 1, 2).cuda()
+
+        self.tem_embed = embed(self.seg, self.dim1, norm=False, bias=bias)        #64*4       #adapted
+        self.spa_embed = embed(num_joint, self.dim1//4, norm=False, bias=bias)    #64 #adapted
+        self.joint_embed = embed(3, self.dim1//4, norm=True, bias=bias)           #64 #adapted
+        self.dif_embed = embed(3, self.dim1//4, norm=True, bias=bias)             #64 #adapted
+        self.maxpool = nn.AdaptiveMaxPool2d((1, 1))
+        self.cnn = local(self.dim1, self.dim1 * 2, bias=bias)
+        self.compute_g1 = compute_g_spa(self.dim1 // 2, self.dim1, bias=bias)
+        self.gcn1 = gcn_spa(self.dim1 // 2, self.dim1 // 2, bias=bias)
+        self.gcn2 = gcn_spa(self.dim1 // 2, self.dim1, bias=bias)
+        self.gcn3 = gcn_spa(self.dim1, self.dim1, bias=bias)
+        self.fc = nn.Linear(self.dim1 * 2, num_class)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+
+        nn.init.constant_(self.gcn1.w.cnn.weight, 0)
+        nn.init.constant_(self.gcn2.w.cnn.weight, 0)
+        nn.init.constant_(self.gcn3.w.cnn.weight, 0)
+
+        #########
+        self.linear_head = nn.ModuleDict()
+        self.logit_scale = nn.Parameter(torch.ones(1,5) * np.log(1 / 0.07))
+
+        self.part_list = nn.ModuleList()
+
+        for i in range(4):
+            self.part_list.append(nn.Linear(256,512))
+
+        self.head = head
+        if 'ViT-B/32' in self.head:
+            self.linear_head['ViT-B/32'] = nn.Linear(256,512)
+            conv_init(self.linear_head['ViT-B/32'])
+        
+        if 'ViT-B/16' in self.head:
+            self.linear_head['ViT-B/16'] = nn.Linear(256,512)
+            conv_init(self.linear_head['ViT-B/16'])
+        if 'ViT-L/14' in self.head:
+            self.linear_head['ViT-L/14'] = nn.Linear(256,768)
+            conv_init(self.linear_head['ViT-L/14'])
+        if 'ViT-L/14@336px' in self.head:
+            self.linear_head['ViT-L/14@336px'] = nn.Linear(256,768)
+            conv_init(self.linear_head['ViT-L/14@336px'])
+        
+        if 'RN50x64' in self.head:
+            self.linear_head['RN50x64'] = nn.Linear(256,1024)
+            conv_init(self.linear_head['RN50x64'])
+
+        if 'RN50x16' in self.head:
+            self.linear_head['RN50x16'] = nn.Linear(256,768)
+            conv_init(self.linear_head['RN50x16'])
+
+        if drop_out:
+            self.drop_out = nn.Dropout(drop_out)
+        else:
+            self.drop_out = lambda x: x
+
+
+    def forward(self, x):
+        #########
+        if len(x.shape) == 3:
+            N, T, VC = x.shape
+            x = x.view(N, T, self.num_point, -1).permute(0, 3, 1, 2).contiguous().unsqueeze(-1) # n, t, vc ->n, t, v, c, -> (n, c, t, v, 1=m)
+        N, C, T, V, M = x.size()
+        x = rearrange(x, 'n c t v m -> (n m) c v t', m=M, v=V).contiguous()
+        # print('**** x = ', x.size())    #[64, 3, 25, 64]  #nm, c, v, t
+
+
+
+        ### Dynamic Representation
+        # bs, step, dim = input.size()                    
+        # num_joints = dim //3
+        # input = input.view((bs, step, num_joints, 3))   #n, t, v, c
+        # input = input.permute(0, 3, 2, 1).contiguous()  #n, c, v, t
+        dif = x[:, :, :, 1:] - x[:, :, :, 0:-1]
+        # print('**** dif = ', dif.size())        #64, 3, 25, 63
+        dif = torch.cat([dif.new(dif.size(0), dif.size(1), dif.size(2), 1).zero_(), dif], dim=-1)
+        pos = self.joint_embed(x)
+        # print('**** pos embed = ', pos.size())      #[64, 64, 25, 64]
+        tem1 = self.tem_embed(self.tem)
+        # print('**** tem1 embed = ', tem1.size())        #[64, 256, 25, 64])
+        spa1 = self.spa_embed(self.spa)
+        # print('**** spa1 embed = ', spa1.size())        #[64, 64, 25, 64]
+        dif = self.dif_embed(dif)                   
+        # print('**** dif embed = ', dif.size())             #[64, 64, 25, 64]
+        dy = pos + dif
+        ### Joint-level Module
+        x= torch.cat([dy, spa1[:dy.size(0), :, :, :]], 1)   # spa1 mdf to spa1[:dy.size(0), :, :, :] so if "dy" won't cause an issue when it takes less samples that spa1
+        g = self.compute_g1(x)
+        x = self.gcn1(x, g)
+        x = self.gcn2(x, g)
+        x = self.gcn3(x, g)
+        ### Frame-level Module
+        x = x + tem1[:x.size(0), :, :, :]     ## tem1 mdf to  so if "x" won't cause an issue when it takes less samples that tem1
+        # print('**** x: ', x.size())
+        x = self.cnn(x) #n,c: in=256->out=256*2, v, t
+        
+        
+        # ### Classification
+        # output = self.maxpool(input)  
+        # output = torch.flatten(output, 1)
+        # output = self.fc(output)
+
+        # return output
+
+
+        ###############
+        ## N*M,C,T,V
+        x = x.permute(0, 1, 3, 2)
+        c_new = x.size(1)
+
+        feature = x.view(N,M,c_new,T//4,V)
+        head_list = torch.Tensor([2,3,20]).long()
+        hand_list = torch.Tensor([4,5,6,7,8,9,10,11,21,22,23,24]).long()
+        foot_list = torch.Tensor([12,13,14,15,16,17,18,19]).long()
+        hip_list = torch.Tensor([0,1,2,12,16]).long()
+        # print('feature: ', feature.size())
+        # print('head:', head_list.size())
+        # print('hand:', hand_list.size())
+        # print('foot:', foot_list.size())
+        # print('hip:', hip_list.size())
+        # print('part_list: ', self.part_list[0])
+        # print('features: ' , feature[:,:,:,:,head_list].mean(4).mean(3).mean(1).size())
+        
+
+        head_feature = self.part_list[0](feature[:,:,:,:,head_list].mean(4).mean(3).mean(1))
+        hand_feature = self.part_list[1](feature[:,:,:,:,hand_list].mean(4).mean(3).mean(1))
+        foot_feature = self.part_list[2](feature[:,:,:,:,foot_list].mean(4).mean(3).mean(1))
+        hip_feature = self.part_list[3](feature[:,:,:,:,hip_list].mean(4).mean(3).mean(1))
+
+
+        x = x.reshape(N, M, c_new, -1)      #mdf
+        x = x.mean(3).mean(1)
+
+        feature_dict = dict()
+
+        for name in self.head:
+            feature_dict[name] = self.linear_head[name](x)
+        
+        x = self.drop_out(x)
+
+        return self.fc(x), feature_dict, self.logit_scale, [head_feature, hand_feature, hip_feature, foot_feature]
+
+
+
+
+    def one_hot(self, bs, spa, tem):
+
+        y = torch.arange(spa).unsqueeze(-1)
+        y_onehot = torch.FloatTensor(spa, spa)
+
+        y_onehot.zero_()
+        y_onehot.scatter_(1, y, 1)
+
+        y_onehot = y_onehot.unsqueeze(0).unsqueeze(0)
+        y_onehot = y_onehot.repeat(bs, tem, 1, 1)
+
+        return y_onehot
+########################################## org class Model_lst_4part() ##########################################
+"""class Model_lst_4part(nn.Module):  
+    def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3, drop_out=0, adaptive=True, head=['ViT-B/32'], k=0):
+        super(Model_lst_4part, self).__init__()       
+
+
 
         if graph is None:
             raise ValueError()
@@ -453,7 +637,7 @@ class Model_lst_4part(nn.Module):
         x = self.l9(x)
         x = self.l10(x)
 
-        # N*M,C,T,V
+        ## N*M,C,T,V
         c_new = x.size(1)
 
         feature = x.view(N,M,c_new,T//4,V)
@@ -478,7 +662,7 @@ class Model_lst_4part(nn.Module):
         x = self.drop_out(x)
 
         return self.fc(x), feature_dict, self.logit_scale, [head_feature, hand_feature, hip_feature, foot_feature]
-
+"""
 
 class Model_lst_4part_bone(nn.Module):
     def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3,
@@ -866,3 +1050,116 @@ class Model_lst_4part_bone_ucla(nn.Module):
         x = self.drop_out(x)
 
         return self.fc(x), feature_dict, self.logit_scale, [head_feature, hand_feature, hip_feature, foot_feature]
+
+
+
+
+
+
+
+
+
+###########################################  implementing SGN model into Model_lst_4part() class ###########################################################
+class norm_data(nn.Module):
+    def __init__(self, dim= 64):
+        super(norm_data, self).__init__()
+
+        self.bn = nn.BatchNorm1d(dim* 25)
+
+    def forward(self, x):
+        bs, c, num_joints, step = x.size()
+        x = x.view(bs, -1, step)
+        x = self.bn(x)
+        x = x.view(bs, -1, num_joints, step).contiguous()
+        return x
+
+class embed(nn.Module):
+    def __init__(self, dim = 3, dim1 = 128, norm = True, bias = False):
+        super(embed, self).__init__()
+
+        if norm:
+            self.cnn = nn.Sequential(
+                norm_data(dim),
+                cnn1x1(dim, 64, bias=bias),
+                nn.ReLU(),
+                cnn1x1(64, dim1, bias=bias),
+                nn.ReLU(),
+            )
+        else:
+            self.cnn = nn.Sequential(
+                cnn1x1(dim, 64, bias=bias),
+                nn.ReLU(),
+                cnn1x1(64, dim1, bias=bias),
+                nn.ReLU(),
+            )
+
+    def forward(self, x):
+        x = self.cnn(x)
+        return x
+
+class cnn1x1(nn.Module):
+    def __init__(self, dim1 = 3, dim2 =3, bias = True):
+        super(cnn1x1, self).__init__()
+        self.cnn = nn.Conv2d(dim1, dim2, kernel_size=1, bias=bias)
+
+    def forward(self, x):
+        x = self.cnn(x)
+        return x
+
+class local(nn.Module):
+    def __init__(self, dim1 = 3, dim2 = 3, bias = False):
+        super(local, self).__init__()
+        self.maxpool = nn.AdaptiveMaxPool2d((25, 64//4))                               # (v=25, and T//4 = 64//4 = 16 )# modified so it want cause an issue in the hierarchical model
+        self.cnn1 = nn.Conv2d(dim1, dim1, kernel_size=(1, 3), padding=(0, 1), bias=bias)
+        self.bn1 = nn.BatchNorm2d(dim1)
+        self.relu = nn.ReLU()
+        self.cnn2 = nn.Conv2d(dim1, dim2, kernel_size=1, bias=bias)
+        self.bn2 = nn.BatchNorm2d(dim2)
+        self.dropout = nn.Dropout2d(0.2)
+
+    def forward(self, x1):
+        x1 = self.maxpool(x1)   
+        x = self.cnn1(x1)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        x = self.cnn2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+
+        return x
+
+class gcn_spa(nn.Module):
+    def __init__(self, in_feature, out_feature, bias = False):
+        super(gcn_spa, self).__init__()
+        self.bn = nn.BatchNorm2d(out_feature)
+        self.relu = nn.ReLU()
+        self.w = cnn1x1(in_feature, out_feature, bias=False)
+        self.w1 = cnn1x1(in_feature, out_feature, bias=bias)
+
+
+    def forward(self, x1, g):
+        x = x1.permute(0, 3, 2, 1).contiguous()
+        x = g.matmul(x)
+        x = x.permute(0, 3, 2, 1).contiguous()
+        x = self.w(x) + self.w1(x1)
+        x = self.relu(self.bn(x))
+        return x
+
+class compute_g_spa(nn.Module):
+    def __init__(self, dim1 = 64 *3, dim2 = 64*3, bias = False):
+        super(compute_g_spa, self).__init__()
+        self.dim1 = dim1
+        self.dim2 = dim2
+        self.g1 = cnn1x1(self.dim1, self.dim2, bias=bias)
+        self.g2 = cnn1x1(self.dim1, self.dim2, bias=bias)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x1):
+
+        g1 = self.g1(x1).permute(0, 3, 2, 1).contiguous()
+        g2 = self.g2(x1).permute(0, 3, 1, 2).contiguous()
+        g3 = g1.matmul(g2)
+        g = self.softmax(g3)
+        return g
+###########################################  implementing SGN model into Model_lst_4part() class ###########################################################

@@ -307,7 +307,7 @@ class Processor():
         Model = import_class(self.arg.model)
         shutil.copy(inspect.getfile(Model), self.arg.work_dir) #"shutil.copy2(inspect.getfile(Model), self.arg.work_dir)": in this command we use copy() instead of copy2(), because in this PC I'm using a server-disk which does not allow copy permissions => using copy()
         print(Model)
-        self.model = Model(**self.arg.model_args)
+        self.model = Model(self.arg.batch_size, **self.arg.model_args)   ### mdf
         print(self.model)
         self.loss_ce = nn.CrossEntropyLoss().cuda(output_device)
         self.loss = KLLoss().cuda(output_device)
@@ -419,7 +419,7 @@ class Processor():
         self.record_time()
         return split_time
 
-    def train(self, epoch, save_model=False):
+    def train(self, epoch, save_model=True):        #mdf #save_model=False
         self.model.train()
         self.print_log('Training epoch: {}'.format(epoch + 1))
         loader = self.data_loader['train']
@@ -616,7 +616,8 @@ class Processor():
                 save_model = (((epoch + 1) % self.arg.save_interval == 0) or (
                         epoch + 1 == self.arg.num_epoch)) and (epoch+1) > self.arg.save_epoch
 
-                self.train(epoch, save_model=save_model)
+                # self.train(epoch, save_model=save_model)      #commented, to check why the model does not save checkpoints, through  "save_model"
+                self.train(epoch, save_model=True)
 
                 self.eval(epoch, save_score=self.arg.save_score, loader_name=['test'])
 
