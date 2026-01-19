@@ -1,3 +1,62 @@
+"""
+================================================================================
+UTILITY FUNCTIONS FOR SKELETON-BASED ACTION RECOGNITION WITH PyTorch
+================================================================================
+This module provides utility functions for preprocessing, augmenting, and 
+managing skeleton data for action recognition tasks. It supports:
+
+CORE FUNCTIONALITIES:
+1. Data Import & Setup:
+   - import_class(): Dynamic class imports from string paths
+   - init_seed(): Reproducibility control across random libraries
+   - str2bool(): Parser for boolean command-line arguments
+
+2. Model Utilities:
+   - count_params(): Count trainable parameters in PyTorch models
+   - set_parameter_requires_grad(): Freeze/unfreeze model parameters
+
+3. Skeleton Data Processing:
+   - align_skeleton(): Normalizes 3D skeleton poses (hips/spine alignment)
+   - create_aligned_dataset(): Batch processes NTU RGB+D datasets with alignment
+   - get_motion(): Extracts position (x), velocity (v), acceleration (a) features
+
+4. Data Augmentation & Transformation:
+   - random_rot_mat(): Generates 3D rotation matrices for viewpoint augmentation
+   - repeat_rot_mat(): Expands rotation matrices for multi-joint systems
+   - get_motion(): Applies rotation and jittering to motion features
+
+5. Attention & Embedding Tools:
+   - get_attn(): Computes attention embeddings (scaled dot-product/Euclidean)
+   - get_vector_property(): Measures cosine similarity and pairwise distances
+
+6. Sampling Strategies:
+   - BalancedSampler(): Class-balanced batch sampling for imbalanced datasets
+
+7. BERT-style Masking:
+   - get_masked_input_and_labels(): Creates masked inputs for self-supervised learning
+
+PRIMARY USE CASES:
+- Preprocessing NTU RGB+D skeleton datasets (alignment, motion feature extraction)
+- Data augmentation for 3D skeleton sequences
+- Utilities for transformer/attention-based action recognition models
+- Balanced batch sampling for training on imbalanced action classes
+
+DATA FORMAT EXPECTATIONS:
+- Skeleton data: Shape [N, C, T, V, M] = [Batch, Channels, Frames, Joints, Persons]
+- Motion features: Extracted as per-frame position, velocity, acceleration
+
+EXAMPLE USAGE:
+    # Align NTU dataset
+    create_aligned_dataset(['data/ntu/NTU60_CS.npz'])
+    
+    # Extract motion features with rotation augmentation
+    motion_data = get_motion(skeleton_tensor, data_format=['x','v'], rot=True)
+    
+    # Use balanced sampling
+    sampler = BalancedSampler(dataset, args)
+================================================================================
+"""
+
 import argparse
 import random
 import pickle

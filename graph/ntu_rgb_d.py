@@ -1,3 +1,52 @@
+"""
+ntu_rgb_d.py - Graph Definition for NTU RGB+D Skeleton Data
+
+This module defines the human skeleton graph structure for the NTU RGB+D dataset.
+It provides adjacency matrices for spatial-temporal graph convolutional networks
+used in skeleton-based action recognition.
+
+Dataset Reference: 
+    NTU RGB+D 60/120: A Large-Scale Dataset for 3D Human Activity Analysis
+    https://arxiv.org/abs/1604.02808
+
+Key Features:
+    - Defines skeleton with 25 joints following NTU RGB+D standard
+    - Supports multiple graph labeling modes
+    - Compatible with InfoGCN and standard spatial configurations
+
+Graph Structure:
+    Joint indices (0-24) correspond to NTU RGB+D skeleton joints:
+        0:  pelvis (base spine)
+        1:  spine (middle spine)
+        2:  neck
+        3:  head
+        4-20: limbs and extremities (see inward_ori_index for mapping)
+
+Usage:
+    >>> from ntu_rgb_d import Graph
+    >>> graph = Graph(labeling_mode='spatial')
+    >>> A = graph.A  # Get adjacency matrix
+    >>> print(graph.num_node)  # 25 joints
+    
+Adjacency Matrices:
+    - 'spatial': Standard spatial configuration with bidirectional edges
+    - Additional modes can be implemented in get_adjacency_matrix()
+
+Attributes:
+    num_node (int): Number of skeleton joints (25)
+    self_link (list): Self-connections [(0,0), (1,1), ..., (24,24)]
+    inward (list): Edges toward body center
+    outward (list): Edges away from body center  
+    neighbor (list): All neighbor connections (inward + outward)
+    A (np.ndarray): Primary adjacency matrix
+    A_outward_binary (np.ndarray): Binary outward adjacency for InfoGCN
+
+Author: [Your Name/Project]
+Created: [Date]
+Version: 1.0
+"""
+
+
 import sys
 import numpy as np
 
