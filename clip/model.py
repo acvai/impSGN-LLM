@@ -1,3 +1,23 @@
+"""
+CLIP Model Implementation (OpenAI style)
+
+This module implements the Contrastive Language-Image Pre-training (CLIP) model architecture.
+Contains three main components:
+1. Visual encoders: ModifiedResNet or VisionTransformer for image feature extraction
+2. Text encoder: Transformer-based text feature extraction
+3. CLIP model: Joint multimodal model for contrastive image-text learning
+
+Key classes:
+- CLIP: Main model combining vision and text encoders
+- ModifiedResNet: ResNet variant with attention pooling
+- VisionTransformer: ViT-based visual encoder
+- Transformer: Text transformer with causal attention
+
+The model learns a shared embedding space where paired images/text have high similarity.
+Includes utilities for weight conversion (fp16) and model building from state dicts.
+"""
+
+
 from collections import OrderedDict
 from typing import Tuple, Union
 
