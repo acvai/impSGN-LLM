@@ -306,9 +306,9 @@ class Processor():
         self.output_device = output_device
         Model = import_class(self.arg.model)
         shutil.copy(inspect.getfile(Model), self.arg.work_dir) #"shutil.copy2(inspect.getfile(Model), self.arg.work_dir)": in this command we use copy() instead of copy2(), because in this PC I'm using a server-disk which does not allow copy permissions => using copy()
-        print(Model)
+        # print(Model)  #commmented temporarly:
         self.model = Model(self.arg.batch_size, **self.arg.model_args)   ### mdf
-        print(self.model)
+        # print(self.model) # commented temporarly
         self.loss_ce = nn.CrossEntropyLoss().cuda(output_device)
         self.loss = KLLoss().cuda(output_device)
 
